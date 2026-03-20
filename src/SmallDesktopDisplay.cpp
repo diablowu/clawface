@@ -19,8 +19,6 @@
 #include <StaticThreadController.h> //协程控制
 
 #include "config.h"                  //配置文件
-#include "weatherNum/weatherNum.h"   //天气图库
-#include "Animate/Animate.h"         //动画模块
 #include "wifiReFlash/wifiReFlash.h" //WIFI功能模块
 
 #define Version "SDD V1.4.3"
@@ -54,8 +52,14 @@ Button2 Button_sw1 = Button2(4);
 #include "img/humidity.h"       //湿度图标
 
 //函数声明
-void sendNTPpacket(IPAddress &address); //向NTP服务器发送请求
-time_t getNtpTime();                    //从NTP获取时间
+void sendNTPpacket(IPAddress &address);
+time_t getNtpTime();
+void drawLineFont(uint32_t _x, uint32_t _y, uint32_t _num, uint32_t _size, uint32_t _color);
+void getCityCode();
+void getCityWeater();
+void weaterData(String *cityDZ, String *dataSK, String *dataFC);
+void scrollBanner();
+void reflashBanner();
 
 // void digitalClockDisplay(int reflash_en);
 void printDigits(int digits);
@@ -64,29 +68,17 @@ void LCD_reflash();
 void savewificonfig();         // wifi ssid，psw保存到eeprom
 void readwificonfig();         //从eeprom读取WiFi信息ssid，psw
 void deletewificonfig();       //删除原有eeprom中的信息
-void getCityCode();            //发送HTTP请求并且将服务器响应通过串口输出
-void getCityWeater();          //获取城市天气
 void wifi_reset(Button2 &btn); // WIFI重设
 void saveParamCallback();
 void esp_reset(Button2 &btn);
-void scrollBanner();
-void weaterData(String *cityDZ, String *dataSK, String *dataFC); //天气信息写到屏幕上
-void refresh_AnimatedImage();                                    //更新右下角
 
 //创建时间更新函数线程
 Thread reflash_time = Thread();
-//创建副标题切换线程
-Thread reflash_Banner = Thread();
 //创建恢复WIFI链接
 Thread reflash_openWifi = Thread();
-//创建动画绘制线程
-Thread reflash_Animate = Thread();
 
 //创建协程池
-StaticThreadController<4> controller(&reflash_time, &reflash_Banner, &reflash_openWifi, &reflash_Animate);
-
-//联网后所有需要更新的数据
-Thread WIFI_reflash = Thread();
+StaticThreadController<2> controller(&reflash_time, &reflash_openWifi);
 
 /* *****************************************************************
  *  参数设置
@@ -127,17 +119,9 @@ int CC_addr = 10;   //被写入数据的EEPROM地址编号  10城市
 int wifi_addr = 30; //被写入数据的EEPROM地址编号  20wifi-ssid-psw
 
 time_t prevDisplay = 0;       //显示时间显示记录
-int Amimate_reflash_Time = 0; //更新时间记录
-
-/*** Component objects ***/
-WeatherNum wrat;
 
 uint32_t targetTime = 0;
-String cityCode = "101090609"; //天气城市代码
-int tempnum = 0;               //温度百分比
-int huminum = 0;               //湿度百分比
-int tempcol = 0xffff;          //温度显示颜色
-int humicol = 0xffff;          //湿度显示颜色
+String cityCode = "";
 
 // NTP服务器参数
 static const char ntpServerName[] = "ntp6.aliyun.com";
@@ -218,33 +202,6 @@ void loading(byte delayTime) //绘制进度条
   clk.deleteSprite();
   loadNum += 1;
   delay(delayTime);
-}
-
-//湿度图标显示函数
-void humidityWin()
-{
-  clk.setColorDepth(8);
-
-  huminum = huminum / 2;
-  clk.createSprite(52, 6);                         //创建窗口
-  clk.fillSprite(0x0000);                          //填充率
-  clk.drawRoundRect(0, 0, 52, 6, 3, 0xFFFF);       //空心圆角矩形  起始位x,y,长度，宽度，圆弧半径，颜色
-  clk.fillRoundRect(1, 1, huminum, 4, 2, humicol); //实心圆角矩形
-  clk.pushSprite(45, 222);                         //窗口位置
-  clk.deleteSprite();
-}
-
-//温度图标显示函数
-void tempWin()
-{
-  clk.setColorDepth(8);
-
-  clk.createSprite(52, 6);                         //创建窗口
-  clk.fillSprite(0x0000);                          //填充率
-  clk.drawRoundRect(0, 0, 52, 6, 3, 0xFFFF);       //空心圆角矩形  起始位x,y,长度，宽度，圆弧半径，颜色
-  clk.fillRoundRect(1, 1, tempnum, 4, 2, tempcol); //实心圆角矩形
-  clk.pushSprite(45, 192);                         //窗口位置
-  clk.deleteSprite();
 }
 
 #if DHT_EN
@@ -706,304 +663,33 @@ void saveParamCallback()
 // 发送HTTP请求并且将服务器响应通过串口输出
 void getCityCode()
 {
-  String URL = "http://wgeo.weather.com.cn/ip/?_=" + String(now());
-  //创建 HTTPClient 对象
-  HTTPClient httpClient;
-
-  //配置请求地址。此处也可以不使用端口号和PATH而单纯的
-  httpClient.begin(wificlient, URL);
-
-  //设置请求头中的User-Agent
-  httpClient.setUserAgent("Mozilla/5.0 (iPhone; CPU iPhone OS 11_0 like Mac OS X) AppleWebKit/604.1.38 (KHTML, like Gecko) Version/11.0 Mobile/15A372 Safari/604.1");
-  httpClient.addHeader("Referer", "http://www.weather.com.cn/");
-
-  //启动连接并发送HTTP请求
-  int httpCode = httpClient.GET();
-  Serial.print("Send GET request to URL: ");
-  Serial.println(URL);
-
-  //如果服务器响应OK则从服务器获取响应体信息并通过串口输出
-  if (httpCode == HTTP_CODE_OK)
-  {
-    String str = httpClient.getString();
-
-    int aa = str.indexOf("id=");
-    if (aa > -1)
-    {
-      // cityCode = str.substring(aa+4,aa+4+9).toInt();
-      cityCode = str.substring(aa + 4, aa + 4 + 9);
-      Serial.println(cityCode);
-      getCityWeater();
-    }
-    else
-    {
-      Serial.println("获取城市代码失败");
-    }
-  }
-  else
-  {
-    Serial.println("请求城市代码错误：");
-    Serial.println(httpCode);
-  }
-
-  //关闭ESP8266与服务器连接
-  httpClient.end();
 }
 
 // 获取城市天气
 void getCityWeater()
 {
-  // String URL = "http://d1.weather.com.cn/dingzhi/" + cityCode + ".html?_="+String(now());//新
-  String URL = "http://d1.weather.com.cn/weather_index/" + cityCode + ".html?_=" + String(now()); //原来
-  //创建 HTTPClient 对象
-  HTTPClient httpClient;
-
-  // httpClient.begin(URL);
-  httpClient.begin(wificlient, URL); //使用新方法
-
-  //设置请求头中的User-Agent
-  httpClient.setUserAgent("Mozilla/5.0 (iPhone; CPU iPhone OS 11_0 like Mac OS X) AppleWebKit/604.1.38 (KHTML, like Gecko) Version/11.0 Mobile/15A372 Safari/604.1");
-  httpClient.addHeader("Referer", "http://www.weather.com.cn/");
-
-  //启动连接并发送HTTP请求
-  int httpCode = httpClient.GET();
-  Serial.println("正在获取天气数据");
-  // Serial.println(URL);
-
-  //如果服务器响应OK则从服务器获取响应体信息并通过串口输出
-  if (httpCode == HTTP_CODE_OK)
-  {
-
-    String str = httpClient.getString();
-    int indexStart = str.indexOf("weatherinfo\":");
-    int indexEnd = str.indexOf("};var alarmDZ");
-
-    String jsonCityDZ = str.substring(indexStart + 13, indexEnd);
-    // Serial.println(jsonCityDZ);
-
-    indexStart = str.indexOf("dataSK =");
-    indexEnd = str.indexOf(";var dataZS");
-    String jsonDataSK = str.substring(indexStart + 8, indexEnd);
-    // Serial.println(jsonDataSK);
-
-    indexStart = str.indexOf("\"f\":[");
-    indexEnd = str.indexOf(",{\"fa");
-    String jsonFC = str.substring(indexStart + 5, indexEnd);
-    // Serial.println(jsonFC);
-
-    weaterData(&jsonCityDZ, &jsonDataSK, &jsonFC);
-    Serial.println("获取成功");
-  }
-  else
-  {
-    Serial.println("请求城市天气错误：");
-    Serial.print(httpCode);
-  }
-
-  //关闭ESP8266与服务器连接
-  httpClient.end();
 }
 
-String scrollText[7];
-// int scrollTextWidth = 0;
-
-// 天气信息写到屏幕上
-void weaterData(String *cityDZ, String *dataSK, String *dataFC)
-{
-  // 解析第一段JSON
-  DynamicJsonDocument doc(1024);
-  deserializeJson(doc, *dataSK);
-  JsonObject sk = doc.as<JsonObject>();
-
-  // TFT_eSprite clkb = TFT_eSprite(&tft);
-
-  /***绘制相关文字***/
-  clk.setColorDepth(8);
-  clk.loadFont(ZdyLwFont_20);
-
-  // 温度
-  clk.createSprite(58, 24);
-  clk.fillSprite(bgColor);
-  clk.setTextDatum(CC_DATUM);
-  clk.setTextColor(TFT_WHITE, bgColor);
-  clk.drawString(sk["temp"].as<String>() + "℃", 28, 13);
-  clk.pushSprite(100, 184);
-  clk.deleteSprite();
-  tempnum = sk["temp"].as<int>();
-  tempnum = tempnum + 10;
-  if (tempnum < 10)
-    tempcol = 0x001F;
-  else if (tempnum < 28)
-    tempcol = 0x07FF;
-  else if (tempnum < 34)
-    tempcol = 0x03FF;
-  else if (tempnum < 41)
-    tempcol = 0x07E0;
-  else if (tempnum < 49)
-    tempcol = 0x07FF;
-  else
-  {
-    tempcol = 0x001F;
-    tempnum = 50;
-  }
-  tempWin();
-
-  // 湿度
-  clk.createSprite(58, 24);
-  clk.fillSprite(bgColor);
-  clk.setTextDatum(CC_DATUM);
-  clk.setTextColor(TFT_WHITE, bgColor);
-  clk.drawString(sk["SD"].as<String>(), 28, 13);
-  // clk.drawString("100%",28,13);
-  clk.pushSprite(100, 214);
-  clk.deleteSprite();
-  // String A = sk["SD"].as<String>();
-  huminum = atoi((sk["SD"].as<String>()).substring(0, 2).c_str());
-
-  if (huminum > 90)
-    humicol = 0x001F;
-  else if (huminum > 70)
-    humicol = 0x07FF;
-  else if (huminum > 40)
-    humicol = 0x03FF;
-  else if (huminum > 20)
-    humicol = 0x07E0;
-  else
-    humicol = 0x07FF;
-  humidityWin();
-
-  // 城市名称
-  clk.createSprite(94, 30);
-  clk.fillSprite(bgColor);
-  clk.setTextDatum(CC_DATUM);
-  clk.setTextColor(TFT_WHITE, bgColor);
-  clk.drawString(sk["cityname"].as<String>(), 44, 16);
-  clk.pushSprite(15, 15);
-  clk.deleteSprite();
-
-  // PM2.5空气指数
-  uint16_t pm25BgColor = tft.color565(156, 202, 127); //优
-  String aqiTxt = "优";
-  int pm25V = sk["aqi"];
-  if (pm25V > 200)
-  {
-    pm25BgColor = tft.color565(136, 11, 32); //重度
-    aqiTxt = "重度";
-  }
-  else if (pm25V > 150)
-  {
-    pm25BgColor = tft.color565(186, 55, 121); //中度
-    aqiTxt = "中度";
-  }
-  else if (pm25V > 100)
-  {
-    pm25BgColor = tft.color565(242, 159, 57); //轻
-    aqiTxt = "轻度";
-  }
-  else if (pm25V > 50)
-  {
-    pm25BgColor = tft.color565(247, 219, 100); //良
-    aqiTxt = "良";
-  }
-  clk.createSprite(56, 24);
-  clk.fillSprite(bgColor);
-  clk.fillRoundRect(0, 0, 50, 24, 4, pm25BgColor);
-  clk.setTextDatum(CC_DATUM);
-  clk.setTextColor(0x0000);
-  clk.drawString(aqiTxt, 25, 13);
-  clk.pushSprite(104, 18);
-  clk.deleteSprite();
-
-  scrollText[0] = "实时天气 " + sk["weather"].as<String>();
-  scrollText[1] = "空气质量 " + aqiTxt;
-  scrollText[2] = "风向 " + sk["WD"].as<String>() + sk["WS"].as<String>();
-
-  // scrollText[6] = atoi((sk["weathercode"].as<String>()).substring(1,3).c_str()) ;
-
-  //天气图标
-  wrat.printfweather(170, 15, atoi((sk["weathercode"].as<String>()).substring(1, 3).c_str()));
-
-  //左上角滚动字幕
-  //解析第二段JSON
-  deserializeJson(doc, *cityDZ);
-  JsonObject dz = doc.as<JsonObject>();
-  // Serial.println(sk["ws"].as<String>());
-  //横向滚动方式
-  // String aa = "今日天气:" + dz["weather"].as<String>() + "，温度:最低" + dz["tempn"].as<String>() + "，最高" + dz["temp"].as<String>() + " 空气质量:" + aqiTxt + "，风向:" + dz["wd"].as<String>() + dz["ws"].as<String>();
-  // scrollTextWidth = clk.textWidth(scrollText);
-  // Serial.println(aa);
-  scrollText[3] = "今日" + dz["weather"].as<String>();
-
-  deserializeJson(doc, *dataFC);
-  JsonObject fc = doc.as<JsonObject>();
-
-  scrollText[4] = "最低温度" + fc["fd"].as<String>() + "℃";
-  scrollText[5] = "最高温度" + fc["fc"].as<String>() + "℃";
-
-  // Serial.println(scrollText[0]);
-
-  clk.unloadFont();
-}
-
-int currentIndex = 0;
-TFT_eSprite clkb = TFT_eSprite(&tft);
-
-void scrollBanner()
-{
-  // if(millis() - prevTime > 2333) //3秒切换一次
-  //  if(second()%2 ==0&& prevTime == 0)
-  //  {
-  if (scrollText[currentIndex])
-  {
-    clkb.setColorDepth(8);
-    clkb.loadFont(ZdyLwFont_20);
-    clkb.createSprite(150, 30);
-    clkb.fillSprite(bgColor);
-    clkb.setTextWrap(false);
-    clkb.setTextDatum(CC_DATUM);
-    clkb.setTextColor(TFT_WHITE, bgColor);
-    clkb.drawString(scrollText[currentIndex], 74, 16);
-    clkb.pushSprite(10, 45);
-
-    clkb.deleteSprite();
-    clkb.unloadFont();
-
-    if (currentIndex >= 5)
-      currentIndex = 0; //回第一个
-    else
-      currentIndex += 1; //准备切换到下一个
-  }
-  prevTime = 1;
-  //  }
-}
-
-// 用快速线方法绘制数字
 void drawLineFont(uint32_t _x, uint32_t _y, uint32_t _num, uint32_t _size, uint32_t _color)
 {
   uint32_t fontSize;
   const LineAtom *fontOne;
-  // 小号(9*14)
   if (_size == 1)
   {
     fontOne = smallLineFont[_num];
     fontSize = smallLineFont_size[_num];
-    // 绘制前清理字体绘制区域
     tft.fillRect(_x, _y, 9, 14, TFT_BLACK);
   }
-  // 中号(18*30)
   else if (_size == 2)
   {
     fontOne = middleLineFont[_num];
     fontSize = middleLineFont_size[_num];
-    // 绘制前清理字体绘制区域
     tft.fillRect(_x, _y, 18, 30, TFT_BLACK);
   }
-  // 大号(36*90)
   else if (_size == 3)
   {
     fontOne = largeLineFont[_num];
     fontSize = largeLineFont_size[_num];
-    // 绘制前清理字体绘制区域
     tft.fillRect(_x, _y, 36, 90, TFT_BLACK);
   }
   else
@@ -1017,62 +703,34 @@ void drawLineFont(uint32_t _x, uint32_t _y, uint32_t _num, uint32_t _size, uint3
 
 int Hour_sign = 60;
 int Minute_sign = 60;
-int Second_sign = 60;
+
 // 日期刷新
 void digitalClockDisplay(int reflash_en = 0)
 {
   // 时钟刷新,输入1强制刷新
   int now_hour = hour();     //获取小时
   int now_minute = minute(); //获取分钟
-  int now_second = second(); //获取秒针
+  
+  int centerX = 48;
+  int centerY = 75;
+  
   //小时刷新
   if ((now_hour != Hour_sign) || (reflash_en == 1))
   {
-    drawLineFont(20, timeY, now_hour / 10, 3, SD_FONT_WHITE);
-    drawLineFont(60, timeY, now_hour % 10, 3, SD_FONT_WHITE);
+    drawLineFont(centerX, centerY, now_hour / 10, 3, SD_FONT_WHITE);
+    drawLineFont(centerX + 40, centerY, now_hour % 10, 3, SD_FONT_WHITE);
     Hour_sign = now_hour;
   }
   //分钟刷新
   if ((now_minute != Minute_sign) || (reflash_en == 1))
   {
-    drawLineFont(101, timeY, now_minute / 10, 3, SD_FONT_YELLOW);
-    drawLineFont(141, timeY, now_minute % 10, 3, SD_FONT_YELLOW);
+    drawLineFont(centerX + 82, centerY, now_minute / 10, 3, SD_FONT_YELLOW);
+    drawLineFont(centerX + 122, centerY, now_minute % 10, 3, SD_FONT_YELLOW);
     Minute_sign = now_minute;
   }
-  //秒针刷新
-  if ((now_second != Second_sign) || (reflash_en == 1)) //分钟刷新
-  {
-    drawLineFont(182, timeY + 30, now_second / 10, 2, SD_FONT_WHITE);
-    drawLineFont(202, timeY + 30, now_second % 10, 2, SD_FONT_WHITE);
-    Second_sign = now_second;
-  }
-
+  
   if (reflash_en == 1)
     reflash_en = 0;
-  /***日期****/
-  clk.setColorDepth(8);
-  clk.loadFont(ZdyLwFont_20);
-
-  //星期
-  clk.createSprite(58, 30);
-  clk.fillSprite(bgColor);
-  clk.setTextDatum(CC_DATUM);
-  clk.setTextColor(TFT_WHITE, bgColor);
-  clk.drawString(week(), 29, 16);
-  clk.pushSprite(102, 150);
-  clk.deleteSprite();
-
-  //月日
-  clk.createSprite(95, 30);
-  clk.fillSprite(bgColor);
-  clk.setTextDatum(CC_DATUM);
-  clk.setTextColor(TFT_WHITE, bgColor);
-  clk.drawString(monthDay(), 49, 16);
-  clk.pushSprite(5, 150);
-  clk.deleteSprite();
-
-  clk.unloadFont();
-  /***日期****/
 }
 
 /*-------- NTP code ----------*/
@@ -1156,20 +814,12 @@ void wifi_reset(Button2 &btn)
 void reflashTime()
 {
   prevDisplay = now();
-  // timeClockDisplay(1);
   digitalClockDisplay();
   prevTime = 0;
 }
 
-//切换天气 or 空气质量
-void reflashBanner()
-{
-#if DHT_EN
-  if (DHT_img_flag != 0)
-    IndoorTem();
-#endif
-  scrollBanner();
-}
+void scrollBanner() {}
+void reflashBanner() {}
 
 //所有需要联网后更新的方法都放在这里
 void WIFI_reflash_All()
@@ -1179,21 +829,10 @@ void WIFI_reflash_All()
     if (WiFi.status() == WL_CONNECTED)
     {
       Serial.println("WIFI connected");
-
-      // Serial.println("getCityWeater start");
-      getCityWeater();
-      // Serial.println("getCityWeater end");
-
       getNtpTime();
-      //其他需要联网的方法写在后面
-
       WiFi.forceSleepBegin(); // Wifi Off
       Serial.println("WIFI sleep......");
       Wifi_en = 0;
-    }
-    else
-    {
-      // Serial.println("WIFI unconnected");
     }
   }
 }
@@ -1312,28 +951,7 @@ void setup()
   TJpgDec.setSwapBytes(true);
   TJpgDec.setCallback(tft_output);
 
-  int CityCODE = 0;
-  for (int cnum = 5; cnum > 0; cnum--)
-  {
-    CityCODE = CityCODE * 100;
-    CityCODE += EEPROM.read(CC_addr + cnum - 1);
-    delay(5);
-  }
-  if (CityCODE >= 101000000 && CityCODE <= 102000000)
-    cityCode = CityCODE;
-  else
-    getCityCode(); //获取城市代码
-
   tft.fillScreen(TFT_BLACK); //清屏
-
-  TJpgDec.drawJpg(15, 183, temperature, sizeof(temperature)); //温度图标
-  TJpgDec.drawJpg(15, 213, humidity, sizeof(humidity));       //湿度图标
-
-  getCityWeater();
-#if DHT_EN
-  if (DHT_img_flag != 0)
-    IndoorTem();
-#endif
 
   WiFi.forceSleepBegin(); // wifi off
   Serial.println("WIFI休眠......");
@@ -1342,38 +960,11 @@ void setup()
   reflash_time.setInterval(300); //设置所需间隔 100毫秒
   reflash_time.onRun(reflashTime);
 
-  reflash_Banner.setInterval(2 * TMS); //设置所需间隔 2秒
-  reflash_Banner.onRun(reflashBanner);
-
-  reflash_openWifi.setInterval(updateweater_time * 60 * TMS); //设置所需间隔 10分钟
-  reflash_openWifi.onRun(openWifi);
-
-  reflash_Animate.setInterval(TMS / 10); //设置帧率
-  reflash_openWifi.onRun(refresh_AnimatedImage);
   controller.run();
-}
-
-const uint8_t *Animate_value; //指向关键帧的指针
-uint32_t Animate_size;        //指向关键帧大小的指针
-void refresh_AnimatedImage()
-{
-#if Animate_Choice
-  if (DHT_img_flag == 0)
-  {
-    if (millis() - Amimate_reflash_Time > 100) // x ms切换一次
-    {
-      Amimate_reflash_Time = millis();
-      imgAnim(&Animate_value, &Animate_size);
-      TJpgDec.drawJpg(160, 160, Animate_value, Animate_size);
-    }
-  }
-#endif
 }
 
 void loop()
 {
-  // refresh_AnimatedImage(&TJpgDec); //更新右下角
-  refresh_AnimatedImage(); //更新右下角
   Supervisor_controller(); // 守护线程池
   WIFI_reflash_All();      // WIFI应用
   Serial_set();            //串口响应
