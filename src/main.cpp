@@ -51,6 +51,18 @@ void setup()
 
 void renderText()
 {
+  int lineCount = 1;
+  for (size_t i = 0; i < displayText.length(); i++) {
+    if (displayText.charAt(i) == '\n') lineCount++;
+  }
+  
+  while (lineCount > SCREEN_MAX_LINES) {
+    int firstNewline = displayText.indexOf('\n');
+    if (firstNewline == -1) break;
+    displayText = displayText.substring(firstNewline + 1);
+    lineCount--;
+  }
+  
   tft.fillScreen(TFT_BLACK);
   tft.setTextColor(GREEN, TFT_BLACK);
   tft.setTextSize(2);
