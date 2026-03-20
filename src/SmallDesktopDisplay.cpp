@@ -122,6 +122,8 @@ time_t prevDisplay = 0;       //显示时间显示记录
 
 uint32_t targetTime = 0;
 String cityCode = "";
+int counter = 0;
+unsigned long lastCounterUpdate = 0;
 
 // NTP服务器参数
 static const char ntpServerName[] = "ntp6.aliyun.com";
@@ -704,30 +706,21 @@ void drawLineFont(uint32_t _x, uint32_t _y, uint32_t _num, uint32_t _size, uint3
 int Hour_sign = 60;
 int Minute_sign = 60;
 
-// 日期刷新
+// 计数器刷新
 void digitalClockDisplay(int reflash_en = 0)
 {
-  // 时钟刷新,输入1强制刷新
-  int now_hour = hour();     //获取小时
-  int now_minute = minute(); //获取分钟
-  
   int centerX = 48;
   int centerY = 75;
   
-  //小时刷新
-  if ((now_hour != Hour_sign) || (reflash_en == 1))
-  {
-    drawLineFont(centerX, centerY, now_hour / 10, 3, SD_FONT_WHITE);
-    drawLineFont(centerX + 40, centerY, now_hour % 10, 3, SD_FONT_WHITE);
-    Hour_sign = now_hour;
-  }
-  //分钟刷新
-  if ((now_minute != Minute_sign) || (reflash_en == 1))
-  {
-    drawLineFont(centerX + 82, centerY, now_minute / 10, 3, SD_FONT_YELLOW);
-    drawLineFont(centerX + 122, centerY, now_minute % 10, 3, SD_FONT_YELLOW);
-    Minute_sign = now_minute;
-  }
+  int d1 = counter / 1000;
+  int d2 = (counter / 100) % 10;
+  int d3 = (counter / 10) % 10;
+  int d4 = counter % 10;
+  
+  drawLineFont(centerX, centerY, d1, 3, SD_FONT_WHITE);
+  drawLineFont(centerX + 40, centerY, d2, 3, SD_FONT_WHITE);
+  drawLineFont(centerX + 82, centerY, d3, 3, SD_FONT_YELLOW);
+  drawLineFont(centerX + 122, centerY, d4, 3, SD_FONT_YELLOW);
   
   if (reflash_en == 1)
     reflash_en = 0;
@@ -813,7 +806,13 @@ void wifi_reset(Button2 &btn)
 //更新时间
 void reflashTime()
 {
-  prevDisplay = now();
+  if (millis() - lastCounterUpdate >= 1000)
+  {
+    lastCounterUpdate = millis();
+    counter++;
+    if (counter > 9999)
+      counter = 0;
+  }
   digitalClockDisplay();
   prevTime = 0;
 }
@@ -829,7 +828,6 @@ void WIFI_reflash_All()
     if (WiFi.status() == WL_CONNECTED)
     {
       Serial.println("WIFI connected");
-      getNtpTime();
       WiFi.forceSleepBegin(); // Wifi Off
       Serial.println("WIFI sleep......");
       Wifi_en = 0;
@@ -941,11 +939,6 @@ void setup()
 
   Serial.print("本地IP： ");
   Serial.println(WiFi.localIP());
-  Serial.println("启动UDP");
-  Udp.begin(localPort);
-  Serial.println("等待同步...");
-  setSyncProvider(getNtpTime);
-  setSyncInterval(300);
 
   TJpgDec.setJpgScale(1);
   TJpgDec.setSwapBytes(true);
@@ -957,7 +950,7 @@ void setup()
   Serial.println("WIFI休眠......");
   Wifi_en = 0;
 
-  reflash_time.setInterval(300); //设置所需间隔 100毫秒
+  reflash_time.setInterval(100); //设置所需间隔 100毫秒
   reflash_time.onRun(reflashTime);
 
   controller.run();
