@@ -1,4 +1,4 @@
-#include "weathernum.h"
+#include "weatherNum.h"
 
 #include <TJpg_Decoder.h>
 //int numx;

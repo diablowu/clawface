@@ -1,25 +1,4 @@
 /* *****************************************************************
- *
- * SmallDesktopDisplay
- *    小型桌面显示器
- *
- * 原  作  者：Misaka
- * 修      改：微车游
- * 再次  修改：丘山鹤
- * 讨  论  群：811058758、887171863、720661626
- * 创 建 日 期：2021.07.19
- * 最后更改日期：2022.1.17
- *
- *
- * 引 脚 分 配：SCK   GPIO14
- *              MOSI  GPIO13
- *              RES   GPIO2
- *              DC    GPIO0
- *              LCDBL GPIO5
- *
- *             增加DHT11温湿度传感器，传感器接口为 GPIO 12
- *
- *    感谢群友 @你别失望  提醒发现WiFi保存后无法重置的问题，目前已解决。详情查看更改说明！
  * *****************************************************************/
 
 /* *****************************************************************
@@ -853,18 +832,18 @@ void weaterData(String *cityDZ, String *dataSK, String *dataFC)
   tempnum = sk["temp"].as<int>();
   tempnum = tempnum + 10;
   if (tempnum < 10)
-    tempcol = 0x00FF;
+    tempcol = 0x001F;
   else if (tempnum < 28)
-    tempcol = 0x0AFF;
+    tempcol = 0x07FF;
   else if (tempnum < 34)
-    tempcol = 0x0F0F;
+    tempcol = 0x03FF;
   else if (tempnum < 41)
-    tempcol = 0xFF0F;
+    tempcol = 0x07E0;
   else if (tempnum < 49)
-    tempcol = 0xF00F;
+    tempcol = 0x07FF;
   else
   {
-    tempcol = 0xF00F;
+    tempcol = 0x001F;
     tempnum = 50;
   }
   tempWin();
@@ -882,15 +861,15 @@ void weaterData(String *cityDZ, String *dataSK, String *dataFC)
   huminum = atoi((sk["SD"].as<String>()).substring(0, 2).c_str());
 
   if (huminum > 90)
-    humicol = 0x00FF;
+    humicol = 0x001F;
   else if (huminum > 70)
-    humicol = 0x0AFF;
+    humicol = 0x07FF;
   else if (huminum > 40)
-    humicol = 0x0F0F;
+    humicol = 0x03FF;
   else if (huminum > 20)
-    humicol = 0xFF0F;
+    humicol = 0x07E0;
   else
-    humicol = 0xF00F;
+    humicol = 0x07FF;
   humidityWin();
 
   // 城市名称
