@@ -6,3 +6,7 @@
 #define SD_FONT_WHITE 0x001F  // 蓝色字体颜色
 
 #define timeY 82 // 定义高度
+
+// 屏幕显示配置
+#define SCREEN_CHARS_PER_LINE 20  // 每行最大字符数
+#define SCREEN_MAX_LINES 12       // 最大行数

@@ -20,11 +20,12 @@ int Ro_addr = 2;
 
 void renderText();
 
-String displayText = "HELLO WORLD\r\nESP8266 READY\r\n> _";
+String displayText = "HELLO WORLD\nESP8266 READY\n> _";
 
 void setup()
 {
   Serial.begin(115200);
+  delay(500);
   EEPROM.begin(512);
 
   if (EEPROM.read(BL_addr) > 0 && EEPROM.read(BL_addr) < 100)
@@ -36,10 +37,8 @@ void setup()
   analogWrite(LCD_BL_PIN, 1023 - (LCD_BL_PWM * 10));
 
   tft.init();
-  tft.setRotation(LCD_Rotation);
+  tft.setRotation(0);
   tft.fillScreen(TFT_BLACK);
-
-  tft.setTextSize(1);
   tft.setTextColor(GREEN, TFT_BLACK);
 
   Serial.println("Terminal Display v1.0.0");
@@ -60,33 +59,21 @@ void renderText()
   int16_t cursorY = 0;
   const int16_t lineHeight = 20;
   const int16_t charWidth = 12;
-  const int16_t maxLines = tft.height() / lineHeight;
   
-  int lineCount = 0;
   for (size_t i = 0; i < displayText.length(); i++)
   {
     char c = displayText.charAt(i);
-    if (c == '\r') {
-      cursorX = 0;
-    } else if (c == '\n') {
+    if (c == '\n') {
       cursorX = 0;
       cursorY += lineHeight;
-      lineCount++;
     } else {
       if (cursorX + charWidth > tft.width()) {
         cursorX = 0;
         cursorY += lineHeight;
-        lineCount++;
       }
       tft.drawChar(cursorX, cursorY, c, GREEN, TFT_BLACK, 2);
       cursorX += charWidth;
     }
-  }
-  
-  if (lineCount >= maxLines && cursorY >= tft.height()) {
-    displayText = displayText.substring(displayText.indexOf('\n') + 1);
-    delay(50);
-    renderText();
   }
 }
 

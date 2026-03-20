@@ -1,107 +1,100 @@
-#!/bin/bash
+#!/usr/bin/env python3
 
-# AT Command Test Script for ESP8266 Terminal Display
-# 使用方法: ./test_at.sh [次数]
+import serial
+import time
+import sys
+import random
 
-PORT="/dev/ttyCH341USB0"
-BAUD=115200
-INTERVAL=2
+PORT = "/dev/ttyUSB0"
+BAUD = 115200
 
-# 测试消息列表
-MESSAGES=(
-    "HELLO WORLD"
-    "ESP8266 READY"
-    "MINIMAX-M2.5"
-    "TERMINAL MODE"
-    "TEST MESSAGE"
-    "RANDOM DATA"
-    "1234567890"
-    "ABCDEFGHIJ"
+MESSAGES = [
+    "HELLO WORLD",
+    "ESP8266 READY", 
+    "MINIMAX-M2.5",
+    "TERMINAL MODE",
+    "TEST MESSAGE",
+    "1234567890",
+    "ABCDEFGHIJ",
     "OPENCODE AI"
-    "EMBEDDED SYSTEM"
-)
+]
 
-# 清屏
-clear_screen() {
-    printf "AT+CLEAR\r\n" > "$PORT"
-    sleep 0.3
-}
+def send_at(ser, cmd):
+    ser.write((cmd + "\r\n").encode())
+    time.sleep(0.3)
+    resp = ser.read(200).decode('utf-8', errors='replace').strip()
+    if resp:
+        print(f"  -> {resp}")
+    return resp
 
-# 发送文本
-send_text() {
-    local msg="$1"
-    printf "AT+TEXT=%s\r\n" "$msg" > "$PORT"
-    echo "Sent: $msg"
-}
+def test_at(ser):
+    print("=== Testing AT ===")
+    resp = send_at(ser, "AT")
+    return "OK" in resp
 
-# 随机消息
-random_text() {
-    local idx=$((RANDOM % ${#MESSAGES[@]}))
-    echo "${MESSAGES[$idx]}"
-}
+def test_clear(ser):
+    print("=== Testing AT+CLEAR ===")
+    resp = send_at(ser, "AT+CLEAR")
+    return "OK" in resp
 
-# 主测试
-test_loop() {
-    local count="${1:-10}"
-    local i=0
-    
-    echo "Starting AT Command Test..."
-    echo "Port: $PORT, Baud: $BAUD"
-    echo "Press Ctrl+C to stop"
-    echo ""
-    
-    while [ $i -lt $count ]; do
-        msg=$(random_text)
-        send_text "$msg"
-        sleep "$INTERVAL"
-        ((i++))
-    done
-    
-    echo "Test completed: $i messages sent"
-}
+def test_text(ser, msg):
+    print(f"=== Sending: {msg} ===")
+    resp = send_at(ser, f"AT+TEXT={msg}")
+    return "OK" in resp
 
-# 显示帮助
-show_help() {
-    echo "Usage: $0 [options]"
-    echo ""
-    echo "Options:"
-    echo "  -n, --count N     测试次数 (默认: 10)"
-    echo "  -i, --interval N  间隔秒数 (默认: 2)"
-    echo "  -c, --clear       仅清屏"
-    echo "  -s, --show        显示当前内容"
-    echo "  -h, --help        显示帮助"
-    echo ""
-    echo "Examples:"
-    echo "  $0 -n 5           测试5次"
-    echo "  $0 -c             清屏"
-    echo "  $0 -s             显示当前内容"
-}
+def test_show(ser):
+    print("=== Testing AT+SHOW ===")
+    resp = send_at(ser, "AT+SHOW")
+    return resp
 
-# 解析参数
-case "${1:-}" in
-    -n|--count)
-        test_loop "$2"
-        ;;
-    -i|--interval)
-        INTERVAL="$2"
-        test_loop 10
-        ;;
-    -c|--clear)
-        clear_screen
-        echo "Screen cleared"
-        ;;
-    -s|--show)
-        printf "AT+SHOW\r\n" > "$PORT"
-        sleep 0.5
-        cat "$PORT"
-        ;;
-    -h|--help)
-        show_help
-        ;;
-    "")
-        test_loop 10
-        ;;
-    *)
-        send_text "$1"
-        ;;
-esac
+def main():
+    try:
+        ser = serial.Serial(PORT, BAUD, timeout=2)
+        time.sleep(0.5)
+        print(f"Connected to {PORT} at {BAUD} baud\n")
+        
+        if len(sys.argv) > 1:
+            cmd = sys.argv[1]
+            if cmd == "-a" or cmd == "--at":
+                test_at(ser)
+            elif cmd == "-c" or cmd == "--clear":
+                test_clear(ser)
+            elif cmd == "-s" or cmd == "--show":
+                test_show(ser)
+            elif cmd in ["-t", "--text"]:
+                msg = " ".join(sys.argv[2:]) if len(sys.argv) > 2 else "Test"
+                test_text(ser, msg)
+            elif cmd == "-n" and len(sys.argv) > 2:
+                count = int(sys.argv[2])
+                test_at(ser)
+                test_clear(ser)
+                for i in range(count):
+                    msg = f"Test {i+1}"
+                    test_text(ser, msg)
+                    time.sleep(1)
+                print(f"\nCompleted {count} messages")
+            else:
+                print("Usage: ./test_at.sh [options]")
+                print("  -a, --at         Test AT command")
+                print("  -c, --clear      Clear screen")
+                print("  -s, --show       Show content")
+                print("  -t, --text MSG   Send text message")
+                print("  -n N             Run N tests")
+        else:
+            # Default: run full test
+            test_at(ser)
+            test_clear(ser)
+            time.sleep(0.5)
+            for i, msg in enumerate(MESSAGES[:3]):
+                test_text(ser, msg)
+                time.sleep(1)
+            test_show(ser)
+            
+        ser.close()
+        
+    except serial.SerialException as e:
+        print(f"Error: {e}")
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()
